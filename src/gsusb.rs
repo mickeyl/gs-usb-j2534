@@ -278,7 +278,8 @@ fn data_sample_override(request: u8) -> Option<u32> {
 }
 
 /// `GSUSB_J2534_DATA_TIMING=prop,ph1,ph2,sjw,brp` replaces the computed data-phase timing
-/// (experiments with transmitter timing; the values are checked against the controller limits).
+/// (experiments with transmitter timing; used only for a data rate the values produce, and checked
+/// against the controller limits).
 fn data_timing_override() -> Option<[u32; 5]> {
     let v = std::env::var("GSUSB_J2534_DATA_TIMING").ok()?;
     let p: Vec<u32> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
@@ -630,11 +631,12 @@ impl GsUsb {
                     ))
                 }
             };
-            let timing = match data_timing_override() {
-                Some(t) => {
-                    validate_timing(self.clock, limits, rate, t)?;
-                    t
-                }
+            // the override only applies to a data rate it produces (the driver connects at its
+            // default rate first and the application then changes it)
+            let timing = match data_timing_override()
+                .filter(|t| validate_timing(self.clock, limits, rate, *t).is_ok())
+            {
+                Some(t) => t,
                 None => calculate_timing(REQ_DATA_BITTIMING, self.clock, limits, rate)?,
             };
             crate::trace!("gs_usb data {} -> {:?}", rate, timing);

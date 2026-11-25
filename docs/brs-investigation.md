@@ -37,6 +37,13 @@ All runs transmit with BRS (`GSUSB_J2534_TX_BRS=1`), 500 kbit/s nominal, default
 | 2 Mbit/s | 2000 x 64 B back to back | 2000 / 2000, no error |
 | 2 Mbit/s | 3000 x 8 B | 3000 / 3000, no error |
 | 4 Mbit/s (sample point 70 %) | 2000 x 64 B | 6 sent, 0 received, bus-off, TEC 248, **adapter hangs** |
+| 4 Mbit/s, sample point 90 % (`4,4,1,1,1`) | 2000 x 64 B, 1 ms apart | 2000 / 2000, no error |
+| 4 Mbit/s, sample point 80 % (`3,4,2,2,1`) | 2000 x 64 B, 1 ms apart | 2000 / 2000, no error |
+| 5 Mbit/s, sample point 87.5 % (`3,3,1,1,1`) | 2000 x 64 B | 5 sent, 0 received, bus-off, TEC 254, **adapter hangs** |
+
+The failing 4 Mbit/s run used the computed default `[3,3,3,3,1]` (sample point 70 %, SJW 3); the
+same rate with 80 % or 90 % is clean. So the sample point of the data phase decides, not the rate
+alone. 5 Mbit/s (8 time quanta) is beyond what this adapter/bench does reliably.
 
 Conclusions so far:
 
