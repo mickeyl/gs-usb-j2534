@@ -30,6 +30,13 @@ closes the gap from the other side and turns the adapter into a regular PassThru
 | Robustness | automatic restart after bus-off, clean error when the adapter is unplugged |
 | Output | `target\x86_64-pc-windows-msvc\release\gs_usb_j2534.dll`, `target\i686-pc-windows-msvc\release\gs_usb_j2534.dll` (no VC++ redistributable needed) |
 
+**Known issue: transmitting with BRS.** Frames sent with the bit-rate switch at 2 Mbit/s made the
+candleLightFD on the test bus run into bus-off and finally hang until it was power cycled, while the
+same frames without BRS are reliable. The driver therefore sends FD frames at the nominal rate by
+default (received BRS frames are fine). Findings, hypotheses and the test plan are in
+[docs/brs-investigation.md](docs/brs-investigation.md); the switch is described under
+[Behaviour and limits](#behaviour-and-limits).
+
 Not (yet) supported: the 05.00 API variant, the GM `CAN_FD_PS` dialect, battery voltage (the hardware
 has no ADC). Details under [Limits](#behaviour-and-limits).
 

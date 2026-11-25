@@ -1,0 +1,84 @@
+# Transmitting with BRS: findings and plan
+
+Status: **open**. The driver sends CAN FD frames without BRS by default (`TxBrs` unset); receiving
+BRS frames works. This document records what is known and how to find out whether transmit BRS can
+be made reliable on a candleLightFD (gs_usb), or has to stay off.
+
+## What we know (measured)
+
+* Adapter: candleLightFD `1d50:606f`, 40 MHz controller clock, features `0x5B3` (FD, BT_CONST_EXT,
+  listen-only, timestamps; no termination or state reporting), `BT_CONST_EXT` stalls (an older
+  firmware), firmware version not exposed (`bcdDevice 0.0.0`).
+* Bus: a live CAN FD bus, 500 kbit/s nominal, 2 Mbit/s data phase. Receiving BRS frames is
+  reliable (hundreds of thousands of frames, no losses).
+* Transmitting with BRS at 2 Mbit/s fails: bit errors in the data phase, bus-off within
+  milliseconds, and after a few of these the adapter hangs (`PassThruOpen` fails with a pipe
+  error, a USB port restart does not help, a power cycle does).
+* The same frames without BRS (FD at the nominal rate) are reliable: 40/40 in three runs, and a
+  complete ECU flash (57,000 frames, no error) over the adapter.
+* The failure is pattern dependent, not absolute: a few BRS frames got through, in one test 5/5 at a
+  90 % sample point, then 4 bus-offs in the next 40.
+
+| data timing (40 MHz) | result |
+|---|---|
+| BRP 2, 10 tq, sample point 80 %, SJW 2 (default) | first frame: bus-off after 3 ms, adapter hangs |
+| BRP 1, 20 tq, sample point 90 %, SJW 2 | 5/5, then 4 bus-offs in 40 frames, hung again |
+
+## Hypotheses
+
+1. **Missing or wrong transmitter delay compensation (TDC).** At data rates above about
+   1 Mbit/s a transmitter must sample its own bit later than the nominal sample point, because the
+   transceiver loop delay is a large part of a bit. The gs_usb host protocol has no TDC fields, so
+   the host cannot set it; whether the firmware does it itself is unknown. PEAK's PCAN-USB FD uses
+   the same 80 % sample point for 500 kbit/s / 2 Mbit/s but transmits BRS reliably on this bus.
+2. **Timing resolution.** PEAK's table (PCAN-PassThru 05.00 manual, appendix A.4) uses 20 time
+   quanta per data bit with SJW 4 (`BRP 2, TSEG1 15, TSEG2 4, SJW 4` at 80 MHz). The driver's
+   default picks 10 time quanta with SJW 2 on this adapter (a tie-break in `calculate_timing`).
+   The PEAK-like values (BRP 1 at 40 MHz, TSEG1 15, TSEG2 4, SJW 4) have **not** been tried.
+3. **Bus and transceiver.** The loop delay (cable stubs, termination, transceiver) of this vehicle
+   bus may simply exceed what this hardware tolerates at 2 Mbit/s without TDC.
+4. **Old firmware.** Newer candleLight firmware may configure TDC or have other FD fixes; the
+   adapter reports an old feature set.
+
+## Plan
+
+Do all risky steps on a **bench**: the adapter plus one other FD node (e.g. a PCAN-USB FD as ACKer
+and monitor), short cable, 120 ohm termination at both ends, and no ECU. Expect to power cycle the
+adapter after a failed run; use frames that nobody interprets (an unused id).
+
+1. **Bench baseline.** Same test as on the vehicle (`make brs`-style replay with BRS, plus
+   `make burst` with BRS), 3 runs. This separates the bus from the adapter:
+   * works on the bench: the vehicle bus (loop delay, stubs) is the limiting factor; go to step 5.
+   * fails on the bench: adapter timing or firmware; continue with steps 2-4.
+2. **Timing matrix** (needs a small knob: allow `GSUSB_J2534_DATA_TIMING=prop,ph1,ph2,sjw,brp`,
+   and make the tie-break prefer the smaller BRP). Test at 2 Mbit/s: BRP 1 and BRP 2; sample point
+   70, 75, 80, 85, 90 %; SJW 1, 2, 4. Metric per cell: frames transmitted of 200, bus-offs, TEC
+   at the end. Include PEAK's exact values first (cheapest experiment).
+3. **Rate ladder.** Repeat the best timing at 1 Mbit/s, 1.5, 2, 2.5, 4 Mbit/s data. The highest
+   rate that is clean gives the loop-delay margin, and shows whether hypothesis 1 fits (clean up
+   to a threshold, then failing).
+4. **Firmware.** Read the device descriptor and the DFU interface (the adapter exposes one),
+   identify the firmware build, back it up (`dfu-util -U`), compare with the current candleLight
+   firmware (does it enable TDC for the data phase?), update on the bench and repeat steps 1-3.
+5. **Protocol support.** Check whether newer gs_usb (Linux driver, firmware) defines a TDC or
+   "loop delay" feature bit. If it exists, implement it in `gsusb.rs` (feature detection,
+   `DATA_BITTIMING` with TDC) and test.
+6. **If it cannot be fixed on this hardware:** keep the default (strip BRS), document the
+   supported combinations, and optionally decide per adapter from the firmware version whether
+   BRS may be honored by default.
+
+## Acceptance
+
+* 10,000 BRS frames at 2 Mbit/s on the bench without a transmit error, bus-off or hang, in three
+  consecutive runs, repeated on the vehicle bus (read-only requests) with the same result.
+* A complete ECU flash over the adapter with BRS honored (`make brs-honor`): block time close to
+  the PCAN reference (about 32 ms per 4095-byte block instead of 70-130 ms), no retries.
+* Only then change the default of `TxBrs`, and only for the verified hardware/firmware.
+
+## Open questions
+
+* The first flash attempt over the adapter stopped at the first full block after a single transmit
+  bit error (all 65 consecutive frames were sent, the ECU never answered); the cause is unexplained
+  and may be related.
+* Why some BRS frames pass and others fail (data pattern, position of the stuff bits, ACK timing).
+* Whether the hang after bus-off is a firmware bug that should be reported upstream.
