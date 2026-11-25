@@ -198,6 +198,7 @@ above 2 Mbit/s.
 | registry `HKLM\SOFTWARE\GsUsbJ2534\TraceFile` | the same for **every** application; set with `make trace-on`, remove with `make trace-off` |
 | `GSUSB_J2534_LISTEN_ONLY=1` | start the controller listen-only (no TX, no ACK): safe passive logging |
 | `GSUSB_J2534_TX_BRS=1` / registry `HKLM\SOFTWARE\GsUsbJ2534\TxBrs`=1 | honor the application's BRS bit when sending (default: stripped, see above) |
+| `GSUSB_J2534_DATA_TIMING=prop,ph1,ph2,sjw,brp` | explicit data-phase timing (checked against the controller limits and the bit rate); experiments only |
 | `GSUSB_J2534_DATA_SAMPLE=<permille>` | data-phase sample point (default 800); a tuning knob, it did not cure the BRS failures above |
 
 Set them before the application starts; programs that use j2534-bridge pass them on to the DLL.

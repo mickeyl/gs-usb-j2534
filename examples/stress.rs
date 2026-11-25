@@ -119,6 +119,23 @@ impl Api {
         }
     }
 
+    /// PassThruOpen with an explicit device name (e.g. `J2534-2:PEAK 0x51` for the PEAK DLL).
+    fn open_named(&self, name: Option<&str>) -> Result<u32, (i32, String)> {
+        let c = name.map(|n| std::ffi::CString::new(n).unwrap());
+        let mut dev = 0u32;
+        let rc = unsafe {
+            (self.open)(
+                c.as_ref().map_or(std::ptr::null(), |c| c.as_ptr().cast()),
+                &mut dev,
+            )
+        };
+        if rc == 0 {
+            Ok(dev)
+        } else {
+            Err((rc, self.text()))
+        }
+    }
+
     fn connect_channel(&self, dev: u32, protocol: u32, nominal: u32) -> Result<u32, String> {
         let mut ch = 0u32;
         self.check("PassThruConnect", unsafe {
@@ -213,6 +230,11 @@ struct Opts {
     payload: Vec<u8>,
     frames: u32,
     nobrs: bool,
+    open_name: Option<String>,
+    len: usize,
+    gap_ms: u64,
+    secs: u64,
+    brs: bool,
 }
 
 fn parse(args: &[String]) -> Opts {
@@ -231,6 +253,11 @@ fn parse(args: &[String]) -> Opts {
         payload: vec![],
         frames: 40,
         nobrs: false,
+        open_name: None,
+        len: 64,
+        gap_ms: 3,
+        secs: 10,
+        brs: false,
     };
     let mut i = 0;
     while i < args.len() {
@@ -253,6 +280,11 @@ fn parse(args: &[String]) -> Opts {
             "--classic" => o.classic = true,
             "--frames" => o.frames = next(&mut i).parse().unwrap(),
             "--nobrs" => o.nobrs = true,
+            "--brs" => o.brs = true,
+            "--name" => o.open_name = Some(next(&mut i)),
+            "--len" => o.len = next(&mut i).parse().unwrap(),
+            "--gap-ms" => o.gap_ms = next(&mut i).parse().unwrap(),
+            "--secs" => o.secs = next(&mut i).parse().unwrap(),
             "--dl" => o.dl = next(&mut i).parse().unwrap(),
             "--payload" => {
                 let s = next(&mut i);
@@ -316,6 +348,8 @@ fn main() -> Result<(), String> {
         "unplug" => unplug(&api, &o),
         "brs" => brs(&api, &o),
         "burst" => burst(&api, &o),
+        "monitor" => monitor(&api, &o),
+        "benchtx" => benchtx(&api, &o),
         _ => Err("usage: stress uds|soak|cycle|unplug [options]".into()),
     }
 }
@@ -840,6 +874,139 @@ fn burst(api: &Api, o: &Opts) -> Result<(), String> {
         if refused > 0 || other > 0 || echoed != written || out_of_order > 0 {
             return Err("burst test failed".into());
         }
+        Ok(())
+    })();
+    unsafe { (api.close)(dev) };
+    result
+}
+
+/// Unused 29-bit id for the bench traffic; nobody interprets it.
+const BENCH_ID: u32 = 0x18DA_FF42;
+
+/// Frame payload for sequence number `seq`: the number itself, then reproducible pseudo-random
+/// bytes (so a receiver can verify every byte).
+fn bench_payload(seq: u32, len: usize) -> Vec<u8> {
+    let mut v = seq.to_be_bytes().to_vec();
+    let mut x = seq.wrapping_mul(2_654_435_761) | 1;
+    while v.len() < len {
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        v.push((x >> 8) as u8);
+    }
+    v
+}
+
+/// Reference receiver on a second adapter (normally the PEAK DLL): connects, ACKs everything,
+/// prints READY and then verifies the bench frames for `--secs` seconds.
+///   stress monitor --dll <PCANPT32.dll> --name "J2534-2:PEAK 0x51" --secs 12
+fn monitor(api: &Api, o: &Opts) -> Result<(), String> {
+    let dev = api
+        .open_named(o.open_name.as_deref())
+        .map_err(|e| format!("open: 0x{:X} {}", e.0, e.1))?;
+    let result = (|| {
+        let ch = api.connect_channel(dev, FD_CAN_PS, o.nominal)?;
+        api.set_config(
+            ch,
+            &[(FD_CAN_DATA_PHASE_RATE, o.data), (J1962_PINS, 0x060E)],
+        )?;
+        api.pass_all(ch, FD_CAN_PS)?;
+        println!("READY");
+        let end = Instant::now() + Duration::from_secs(o.secs);
+        let mut seen = std::collections::BTreeSet::new();
+        let (mut rx, mut brs, mut fd, mut corrupt, mut dups, mut other) =
+            (0u32, 0u32, 0u32, 0u32, 0u32, 0u32);
+        let mut len_seen = BTreeMap::new();
+        while Instant::now() < end {
+            let (_, m) = api.read_one(ch, Duration::from_millis(50));
+            let Some(m) = m else { continue };
+            let d = &m.data[..m.data_size as usize];
+            if d.len() < 8 || d[..4] != BENCH_ID.to_be_bytes() {
+                other += 1;
+                continue;
+            }
+            rx += 1;
+            brs += (m.rx_status & FD_CAN_BRS != 0) as u32;
+            fd += (m.rx_status & FD_CAN_FORMAT != 0) as u32;
+            let payload = &d[4..];
+            let seq = u32::from_be_bytes(payload[..4].try_into().unwrap());
+            *len_seen.entry(payload.len()).or_insert(0u32) += 1;
+            if payload != bench_payload(seq, payload.len()).as_slice() {
+                corrupt += 1;
+            }
+            if !seen.insert(seq) {
+                dups += 1;
+            }
+        }
+        let (min, max) = (
+            seen.first().copied().unwrap_or(0),
+            seen.last().copied().unwrap_or(0),
+        );
+        let missing = if seen.is_empty() {
+            0
+        } else {
+            (max - min + 1) as usize - seen.len()
+        };
+        println!(
+            "MONITOR rx={rx} fd={fd} brs={brs} corrupt={corrupt} missing={missing} dups={dups} other={other} first={min} last={max} lens={len_seen:?}"
+        );
+        Ok(())
+    })();
+    unsafe { (api.close)(dev) };
+    result
+}
+
+/// Transmitter under test: sends `--frames` frames of `--len` bytes (BRS with `--brs`, honored only
+/// when GSUSB_J2534_TX_BRS=1) `--gap-ms` apart on the bench id and counts the transmit
+/// confirmations. A second adapter must be running `monitor` (it ACKs the frames).
+fn benchtx(api: &Api, o: &Opts) -> Result<(), String> {
+    let dev = api
+        .open_device()
+        .map_err(|e| format!("open: 0x{:X} {}", e.0, e.1))?;
+    let result = (|| {
+        let ch = raw_channel(api, dev, o)?;
+        api.set_config(ch, &[(LOOPBACK, 1)])?;
+        let flags = FD_CAN_FORMAT | CAN_29BIT_ID | if o.brs { FD_CAN_BRS } else { 0 };
+        let (mut written, mut echoed, mut lost) = (0u32, 0u32, false);
+        let count_echoes = |echoed: &mut u32, lost: &mut bool| loop {
+            let (rc, m) = api.read_one(ch, Duration::ZERO);
+            *lost |= rc == ERR_DEVICE_NOT_CONNECTED;
+            match m {
+                Some(m) if m.rx_status & TX_MSG_TYPE != 0 => *echoed += 1,
+                Some(_) => {}
+                None => break,
+            }
+        };
+        for seq in 0..o.frames {
+            let mut data = BENCH_ID.to_be_bytes().to_vec();
+            data.extend(bench_payload(seq, o.len));
+            match api.write_msg(ch, &msg(FD_CAN_PS, flags, &data), 200) {
+                0 => written += 1,
+                rc => {
+                    lost |= rc == ERR_DEVICE_NOT_CONNECTED;
+                    println!("  write {seq}: rc=0x{rc:X} ({})", api.text());
+                    if lost {
+                        break;
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(o.gap_ms));
+            count_echoes(&mut echoed, &mut lost);
+        }
+        let mut last_progress = Instant::now();
+        let mut last = echoed;
+        while echoed < written && !lost && last_progress.elapsed() < Duration::from_millis(1500) {
+            std::thread::sleep(Duration::from_millis(20));
+            count_echoes(&mut echoed, &mut lost);
+            if echoed != last {
+                last = echoed;
+                last_progress = Instant::now();
+            }
+        }
+        println!(
+            "BENCHTX len={} brs={} frames={} written={written} echoed={echoed} lost={lost}",
+            o.len, o.brs, o.frames
+        );
         Ok(())
     })();
     unsafe { (api.close)(dev) };

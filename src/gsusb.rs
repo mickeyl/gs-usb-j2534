@@ -277,6 +277,46 @@ fn data_sample_override(request: u8) -> Option<u32> {
         .filter(|v| (500..=950).contains(v))
 }
 
+/// `GSUSB_J2534_DATA_TIMING=prop,ph1,ph2,sjw,brp` replaces the computed data-phase timing
+/// (experiments with transmitter timing; the values are checked against the controller limits).
+fn data_timing_override() -> Option<[u32; 5]> {
+    let v = std::env::var("GSUSB_J2534_DATA_TIMING").ok()?;
+    let p: Vec<u32> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+    (p.len() == 5).then(|| [p[0], p[1], p[2], p[3], p[4]])
+}
+
+/// Check an explicit timing `[prop, phase1, phase2, sjw, brp]` against the controller limits and
+/// the requested bit rate.
+pub fn validate_timing(
+    clock: u32,
+    limits: &[u8],
+    bitrate: u32,
+    t: [u32; 5],
+) -> Result<(), UsbError> {
+    let [t1_min, t1_max, t2_min, t2_max, sjw_max, brp_min, brp_max, brp_inc]: [u32; 8] =
+        std::array::from_fn(|i| word(limits, i * 4));
+    let [prop, ph1, ph2, sjw, brp] = t;
+    let t1 = prop + ph1;
+    let bad = |what: &str| Err(UsbError::BaudRate(format!("data timing {t:?}: {what}")));
+    if !(t1_min..=t1_max).contains(&t1) {
+        return bad("prop+phase1 outside the controller range");
+    }
+    if !(t2_min..=t2_max).contains(&ph2) {
+        return bad("phase2 outside the controller range");
+    }
+    if sjw == 0 || sjw > sjw_max || sjw > ph2 || sjw > ph1 {
+        return bad("sjw must be 1..=min(phase1, phase2, sjw_max)");
+    }
+    if !(brp_min..=brp_max).contains(&brp) || (brp - brp_min) % brp_inc.max(1) != 0 {
+        return bad("brp outside the controller range");
+    }
+    let quanta = 1 + t1 + ph2;
+    if u64::from(clock) != u64::from(bitrate) * u64::from(brp) * u64::from(quanta) {
+        return bad("does not produce the requested bit rate");
+    }
+    Ok(())
+}
+
 pub fn calculate_timing(
     request: u8,
     clock: u32,
@@ -590,7 +630,13 @@ impl GsUsb {
                     ))
                 }
             };
-            let timing = calculate_timing(REQ_DATA_BITTIMING, self.clock, limits, rate)?;
+            let timing = match data_timing_override() {
+                Some(t) => {
+                    validate_timing(self.clock, limits, rate, t)?;
+                    t
+                }
+                None => calculate_timing(REQ_DATA_BITTIMING, self.clock, limits, rate)?,
+            };
             crate::trace!("gs_usb data {} -> {:?}", rate, timing);
             self.control(REQ_DATA_BITTIMING, &words(&timing))?;
         }
@@ -801,6 +847,19 @@ mod tests {
             Err(UsbError::BaudRate(_))
         ));
         assert!(calculate_timing(REQ_BITTIMING, 0, &limits_40mhz(), 500_000).is_err());
+    }
+
+    #[test]
+    fn explicit_data_timing_is_validated_against_limits_and_rate() {
+        let limits = limits_40mhz();
+        // 2 Mbit/s with 20 time quanta and a 80 % sample point, brp 1 (the PEAK-like layout)
+        assert!(validate_timing(40_000_000, &limits, 2_000_000, [7, 8, 4, 4, 1]).is_ok());
+        // the computed default: brp 2, 10 time quanta
+        assert!(validate_timing(40_000_000, &limits, 2_000_000, [3, 4, 2, 2, 2]).is_ok());
+        // wrong rate, sjw larger than phase 2, brp out of range
+        assert!(validate_timing(40_000_000, &limits, 2_000_000, [7, 8, 5, 4, 1]).is_err());
+        assert!(validate_timing(40_000_000, &limits, 2_000_000, [7, 8, 4, 5, 1]).is_err());
+        assert!(validate_timing(40_000_000, &limits, 2_000_000, [3, 4, 2, 2, 0]).is_err());
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # Transmitting with BRS: findings and plan
 
-Status: **open**. The driver sends CAN FD frames without BRS by default (`TxBrs` unset); receiving
+Status: **open** (the bench shows that BRS works on a short bus; the vehicle bus is the problem). The driver sends CAN FD frames without BRS by default (`TxBrs` unset); receiving
 BRS frames works. This document records what is known and how to find out whether transmit BRS can
 be made reliable on a candleLightFD (gs_usb), or has to stay off.
 
@@ -23,6 +23,29 @@ be made reliable on a candleLightFD (gs_usb), or has to stay off.
 |---|---|
 | BRP 2, 10 tq, sample point 80 %, SJW 2 (default) | first frame: bus-off after 3 ms, adapter hangs |
 | BRP 1, 20 tq, sample point 90 %, SJW 2 | 5/5, then 4 bus-offs in 40 frames, hung again |
+
+## Bench results (PCAN-USB FD as receiver and ACKer, two nodes, short cable)
+
+`scripts/brs-bench.sh` sends pseudo-random frames from this driver; the PCAN verifies every byte
+(sequence number plus reproducible payload) and the driver trace counts bus-offs and error frames.
+All runs transmit with BRS (`GSUSB_J2534_TX_BRS=1`), 500 kbit/s nominal, default timing.
+
+| data phase | frames | result |
+|---|---|---|
+| 1 Mbit/s | 2000 x 64 B | 2000 sent, 2000 received, no error |
+| 2 Mbit/s | 3000 x 64 B, 2 ms apart | 3000 / 3000, no error |
+| 2 Mbit/s | 2000 x 64 B back to back | 2000 / 2000, no error |
+| 2 Mbit/s | 3000 x 8 B | 3000 / 3000, no error |
+| 4 Mbit/s (sample point 70 %) | 2000 x 64 B | 6 sent, 0 received, bus-off, TEC 248, **adapter hangs** |
+
+Conclusions so far:
+
+* On a short, clean bus BRS at 2 Mbit/s works. The failure on the vehicle bus is therefore not
+  an inherent adapter problem but a margin problem on that bus (loop delay, stubs, transceivers).
+* The failure mechanism (bit errors in the data phase, bus-off, then a hung adapter) is the same
+  one seen on the vehicle bus, here at 4 Mbit/s. That fits a transmitter without effective
+  delay compensation: its margin shrinks with the data rate and with the loop delay.
+* A hung adapter after bus-off is reproducible and needs a power cycle.
 
 ## Hypotheses
 
