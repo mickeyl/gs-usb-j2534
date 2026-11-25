@@ -1,0 +1,10 @@
+# Statically link the MSVC C runtime so the DLL loads on machines
+# without the Visual C++ Redistributable (same choice as j2534-bridge).
+[build]
+target = "x86_64-pc-windows-msvc"
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.i686-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

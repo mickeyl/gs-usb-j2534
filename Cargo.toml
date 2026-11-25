@@ -1,0 +1,23 @@
+[package]
+name = "gs-usb-j2534"
+version = "0.1.0"
+edition = "2021"
+description = "64-bit SAE J2534 (04.04) PassThru driver DLL for gs_usb / candleLight(FD) USB-CAN adapters"
+license = "MIT"
+rust-version = "1.70"
+
+[lib]
+name = "gs_usb_j2534"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rusb = { version = "0.9", features = ["vendored"] }
+
+[dev-dependencies]
+libloading = "0.8"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
