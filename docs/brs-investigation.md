@@ -1,6 +1,6 @@
 # Transmitting with BRS: findings and plan
 
-Status: **open** (the bench shows that BRS works on a short bus; the vehicle bus is the problem). The driver sends CAN FD frames without BRS by default (`TxBrs` unset); receiving
+Status: **mostly resolved** (BRS transmit at 2 Mbit/s is clean on the bench and on the vehicle bus; a flash with BRS honored is the last check). The driver sends CAN FD frames without BRS by default (`TxBrs` unset); receiving
 BRS frames works. This document records what is known and how to find out whether transmit BRS can
 be made reliable on a candleLightFD (gs_usb), or has to stay off.
 
@@ -44,6 +44,28 @@ All runs transmit with BRS (`GSUSB_J2534_TX_BRS=1`), 500 kbit/s nominal, default
 The failing 4 Mbit/s run used the computed default `[3,3,3,3,1]` (sample point 70 %, SJW 3); the
 same rate with 80 % or 90 % is clean. So the sample point of the data phase decides, not the rate
 alone. 5 Mbit/s (8 time quanta) is beyond what this adapter/bench does reliably.
+
+## Vehicle bus results (second day, after the bench runs)
+
+The same adapter on the live bus (500 kbit/s / 2 Mbit/s, ECU powered), frames of 64 bytes on an unused
+id with BRS honored (`GSUSB_J2534_TX_BRS=1`), driver version of commit `e19e565`:
+
+| data timing | frames | result |
+|---|---|---|
+| default (`3,4,2,2,2`, 80 %) | 40 + 1000 + 1500 + 1000 (8 B) + 1000 | all sent and confirmed; no bus-off; one run showed 32 receive error frames in its first ms (joining the bus), none afterwards |
+| default | 3 x 10,000, 1 ms apart | 30,000 / 30,000, no error frame, no bus-off, no reordering |
+| 95 % (`9,9,1,1,1`) | 100 + 1000 + 3000 | clean |
+| 90 % (`8,9,2,2,1`) | 300 + 1000 | clean |
+| default and 95 % | replay of 40 read-only UDS requests to the ECU (BRS) | 40/40 confirmed, ECU answered 36-37 (the rest are DIDs it does not know), no error |
+
+So BRS transmit at 2 Mbit/s now works on the vehicle bus with the default timing. The earlier
+failures (bus-off on the first frame, hang) cannot be reproduced. What changed since then is the driver:
+the wait for bus sync after start, flow-control frames without BRS, the software TX queue and slot
+handling; which one it was is not established (the transmit sequence of the old driver is gone). The
+sample point still matters on the bench at 4 Mbit/s (70 % fails, 80/90 % clean), which fits missing TDC,
+but 2 Mbit/s has enough margin on these buses.
+
+Remaining before the default changes: a complete ECU flash with `make brs-honor`.
 
 Conclusions so far:
 
