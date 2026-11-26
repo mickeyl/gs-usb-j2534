@@ -18,8 +18,8 @@
     .\install.ps1 -Uninstall
     .\install.ps1 -TraceFile C:\ProgramData\GsUsbJ2534\trace.log   # trace every application
     .\install.ps1 -NoTrace
-    .\install.ps1 -TxBrs honor    # transmit FD frames with the BRS bit the application asks for
-    .\install.ps1 -TxBrs strip    # default: send FD frames at the nominal rate (reliable on the test bench)
+    .\install.ps1 -TxBrs honor    # default: transmit FD frames with the BRS bit the application asks for
+    .\install.ps1 -TxBrs strip    # send FD frames at the nominal rate (for a bus where BRS transmit is marginal)
 #>
 [CmdletBinding()]
 param(
@@ -118,7 +118,7 @@ if ($Status) {
     $trace = (Get-ItemProperty $traceKey -ErrorAction SilentlyContinue).TraceFile
     Say ("[trace] " + $(if ($trace) { $trace } else { 'off (use -TraceFile, or GSUSB_J2534_LOG per process)' }))
     $brs = (Get-ItemProperty $traceKey -ErrorAction SilentlyContinue).TxBrs
-    Say ("[tx brs] " + $(if ($brs -eq 1) { 'honored (frames are sent with the requested BRS)' } else { 'stripped (default: FD frames are sent at the nominal rate)' }))
+    Say ("[tx brs] " + $(if ($brs -eq 0) { 'stripped (FD frames are sent at the nominal rate)' } else { 'honored (default: frames are sent with the requested BRS)' }))
     exit 0
 }
 
@@ -141,12 +141,12 @@ if ($needsAdmin -and -not (Test-Admin)) {
 
 if ($TxBrs) {
     if ($TxBrs -eq 'honor') {
-        New-Item -Path $traceKey -Force | Out-Null
-        New-ItemProperty -Path $traceKey -Name TxBrs -PropertyType DWord -Value 1 -Force | Out-Null
-        Say 'FD frames are now sent with the BRS bit the application asks for (applies to programs started from now on).'
-    } else {
+        if (-not (Test-Path $traceKey)) { New-Item -Path $traceKey -Force | Out-Null }  # -Force on an existing key would wipe its values
         Remove-ItemProperty -Path $traceKey -Name TxBrs -ErrorAction SilentlyContinue
-        Say 'FD frames are now sent at the nominal rate, BRS requests are dropped (default).'
+        Say 'FD frames are sent with the BRS bit the application asks for (default; applies to programs started from now on).'
+    } else {
+        New-ItemProperty -Path $traceKey -Name TxBrs -PropertyType DWord -Value 0 -Force | Out-Null
+        Say 'FD frames are now sent at the nominal rate, BRS requests are dropped (applies to programs started from now on).'
     }
     exit 0
 }
@@ -159,7 +159,7 @@ if ($TraceFile -or $NoTrace) {
         $dir = Split-Path -Parent $TraceFile
         if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
         if ($dir) { & icacls.exe $dir /grant '*S-1-5-32-545:(OI)(CI)M' | Out-Null }  # Users may write the trace
-        New-Item -Path $traceKey -Force | Out-Null
+        if (-not (Test-Path $traceKey)) { New-Item -Path $traceKey -Force | Out-Null }  # -Force on an existing key would wipe its values
         New-ItemProperty -Path $traceKey -Name TraceFile -PropertyType String -Value $TraceFile -Force | Out-Null
         Say "Driver trace on: $TraceFile (applies to programs started from now on; the file grows fast, turn it off afterwards)"
     }

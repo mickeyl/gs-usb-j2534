@@ -1,6 +1,6 @@
 # Transmitting with BRS: findings and plan
 
-Status: **mostly resolved** (BRS transmit at 2 Mbit/s is clean on the bench and on the vehicle bus; a flash with BRS honored is the last check). The driver sends CAN FD frames without BRS by default (`TxBrs` unset); receiving
+Status: **resolved for this adapter** (BRS transmit at 2 Mbit/s is clean on the bench, on the vehicle bus and in a complete ECU flash; BRS is honored by default). The driver sends CAN FD frames without BRS by default (`TxBrs` unset); receiving
 BRS frames works. This document records what is known and how to find out whether transmit BRS can
 be made reliable on a candleLightFD (gs_usb), or has to stay off.
 
@@ -65,7 +65,14 @@ handling; which one it was is not established (the transmit sequence of the old 
 sample point still matters on the bench at 4 Mbit/s (70 % fails, 80/90 % clean), which fits missing TDC,
 but 2 Mbit/s has enough margin on these buses.
 
-Remaining before the default changes: a complete ECU flash with `make brs-honor`.
+### Flash with BRS honored
+
+A complete ECU flash over the adapter with BRS honored (57,261 frames, all confirmed): 128 s, against
+181 s for the same flash without BRS (about 30 % faster). No bus-off, no reordering, no frame loss; the
+controller showed one excursion to error-passive (TEC 96 -> 128 within 1 ms, back to active after
+0.2 s) right after a functional TesterPresent, with no frame affected. This closes the acceptance
+list below, and BRS is now the default (`TxBrs=0` / `GSUSB_J2534_TX_BRS=0` restores stripping). The
+default data sample point is also 80 % at 4 Mbit/s now (it was 75 %, which rounded to the failing 70 %).
 
 Conclusions so far:
 

@@ -106,10 +106,10 @@ trace-off: ## switch the machine-wide driver trace off again (UAC prompt)
 trace-show: ## print the last 40 lines of the machine-wide trace
 	@tail -n 40 '$(shell cygpath -u '$(TRACE)')'
 
-brs-honor: ## send FD frames with the application's BRS bit (risky on marginal buses, UAC prompt)
+brs-honor: ## send FD frames with the application's BRS bit (default, UAC prompt)
 	$(INSTALL) -TxBrs honor
 
-brs-strip: ## send FD frames at the nominal rate (default, UAC prompt)
+brs-strip: ## send FD frames at the nominal rate (for a bus where BRS transmit is marginal, UAC prompt)
 	$(INSTALL) -TxBrs strip
 
 brs: examples ## replay a flash-tool-like burst of 40 read-only UDS requests (adds --nobrs via NOBRS=1)

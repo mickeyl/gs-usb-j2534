@@ -691,8 +691,9 @@ fn periodic_messages_repeat_until_stopped() {
 }
 
 #[test]
-fn bus_strips_tx_brs_unless_the_application_setting_honors_it() {
+fn bus_strips_tx_brs_only_when_the_setting_asks_for_it() {
     let r = rig(FD_CAN_PS, Ecu::new(true), |_| {});
+    r.bus.set_honor_tx_brs(false);
     pass_all(&r, FD_CAN_PS);
     let mut d = REQ.to_be_bytes().to_vec();
     d.extend_from_slice(&[0x03, 0x22, 0xF1, 0x90, 0x55, 0x55, 0x55, 0x55]);
@@ -708,7 +709,7 @@ fn bus_strips_tx_brs_unless_the_application_setting_honors_it() {
         let sent = r.mock.sent.lock().unwrap();
         assert!(
             sent[0].1.fd && !sent[0].1.brs,
-            "BRS must be stripped by default"
+            "BRS must be stripped when honoring is off"
         );
     }
     r.bus.set_honor_tx_brs(true);

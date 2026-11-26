@@ -30,11 +30,12 @@ closes the gap from the other side and turns the adapter into a regular PassThru
 | Robustness | automatic restart after bus-off, clean error when the adapter is unplugged |
 | Output | `target\x86_64-pc-windows-msvc\release\gs_usb_j2534.dll`, `target\i686-pc-windows-msvc\release\gs_usb_j2534.dll` (no VC++ redistributable needed) |
 
-**Known issue: transmitting with BRS.** Frames sent with the bit-rate switch at 2 Mbit/s made the
-candleLightFD on the test bus run into bus-off and finally hang until it was power cycled, while the
-same frames without BRS are reliable. The driver therefore sends FD frames at the nominal rate by
-default (received BRS frames are fine). Findings, hypotheses and the test plan are in
-[docs/brs-investigation.md](docs/brs-investigation.md); the switch is described under
+**Transmitting with BRS.** Early versions of the driver ran into bus-off when sending with the
+bit-rate switch at 2 Mbit/s, and the adapter then hung until it was power cycled, so BRS was stripped.
+That no longer happens: 30,000 BRS frames on a vehicle bus, bench runs up to 4 Mbit/s and a complete
+ECU flash (about 30 % faster than without BRS) were clean, so BRS is honored by default. If a bus
+or adapter misbehaves, `make brs-strip` (or `GSUSB_J2534_TX_BRS=0`) sends FD frames at the nominal
+rate again. Details: [docs/brs-investigation.md](docs/brs-investigation.md) and
 [Behaviour and limits](#behaviour-and-limits).
 
 Not (yet) supported: the 05.00 API variant, the GM `CAN_FD_PS` dialect, battery voltage (the hardware
@@ -129,17 +130,20 @@ PassThruReadMsgs(ch, ...)                       # -> [<ECU id> 7E 00]
     of a consecutive-frame burst (all ten hardware slots were busy). The tool writes with timeout 0
     and does not retry a refused frame, so the block arrived incomplete. Fixed by the transmit
     queue (see below) and verified with `make burst`: 390 of 390 frames accepted, confirmed and in
-    order, none refused. A complete flash over the adapter has not been repeated since.
+    order, none refused. 
   * For reference, the same flash over a PCAN-USB (CANcorder log) sends the 4095-byte blocks with
     BRS in 32 ms; without BRS they take 110-135 ms.
-* **BRS on the test bus** (replay of 40 read-only `22 F1 xx` requests, 10 ms apart, candleLightFD on
-  a 500 kbit/s / 2 Mbit/s vehicle bus):
-
-  | transmit mode | result |
-  |---|---|
-  | BRS, data sample point 80 % | first frame: bus-off after 3 ms, controller hangs |
-  | BRS, data sample point 90 % | 4 bus-offs in 40 frames, hung again in a second run |
-  | no BRS (default) | 40/40 transmitted, no bus-off, reproduced in 3 runs |
+* **Complete ECU flash with BRS honored** (57,261 frames, 128 s; the same flash without BRS took
+  181 s): no bus-off, no reordered or lost transmit confirmation, one short error-counter
+  excursion (TEC 128, error-passive for 0.2 s) without a lost frame.
+* **BRS on a vehicle bus** (500 kbit/s / 2 Mbit/s, 64-byte frames on an unused id): 3 x 10,000
+  frames 1 ms apart, all confirmed, no error frame; 40 read-only UDS requests to the ECU with BRS
+  answered as without BRS. Sample points 80, 90 and 95 % are all clean.
+* **BRS on the bench** (second adapter as ACKing receiver, every byte verified): 1, 2 and 4 Mbit/s
+  clean (4 Mbit/s only with a sample point of 80 % or later, 70 % fails with bus-off), 5 Mbit/s fails.
+  See [docs/brs-investigation.md](docs/brs-investigation.md).
+* An earlier version of the driver failed with BRS on this bus (bus-off on the first frame, then a
+  hung adapter); that is not reproducible with the current one.
 
 Not verified on hardware: periodic messages, classic bit rates other than 500 kbit/s, data rates
 above 2 Mbit/s.
@@ -148,16 +152,13 @@ above 2 Mbit/s.
 
 * **One bus configuration per adapter.** Channels share the adapter if their nominal rate matches;
   rates cannot change while another channel is open. The first CAN channel of the adapter is used.
-* **BRS is not transmitted by default.** On the test bench a transmission with BRS at 2 Mbit/s
-  drove the candleLightFD into bus-off within milliseconds, and after a few of those the adapter
-  hung (`PassThruOpen` fails with a pipe error) until it was power cycled; moving the data-phase
-  sample point did not help. The cause is probably missing transmitter delay compensation, which
-  the gs_usb protocol cannot configure. Received BRS frames are no problem. The driver therefore
-  sends FD frames at the nominal rate even when the application sets `FD_CAN_BRS`; the ECU
-  accepted them. Consequence: requests are slower (500 kbit/s for the data bytes), which is
-  irrelevant for diagnostics but costs throughput for large FD transfers. With adapters or buses
-  where BRS works, switch it on again: `make brs-honor` (registry `TxBrs=1`) or
-  `GSUSB_J2534_TX_BRS=1` for one process; `make brs-strip` restores the default.
+* **BRS is transmitted as the application asks.** Early versions hit bus-off on the first BRS
+  frame at 2 Mbit/s and the adapter then hung (`PassThruOpen` fails with a pipe error) until it was
+  power cycled; that cannot be reproduced any more. The gs_usb protocol cannot configure transmitter
+  delay compensation, so a bus with a long loop delay may still be marginal at high data rates (on
+  the bench 4 Mbit/s worked with a 80-90 % sample point and failed with 70 %; 5 Mbit/s failed). If
+  BRS transmit misbehaves on a bus, send FD frames at the nominal rate instead: `make brs-strip`
+  (registry `TxBrs=0`) or `GSUSB_J2534_TX_BRS=0` for one process; `make brs-honor` restores the default.
 * **Transmit queue.** Raw CAN/FD writes go into a software queue of 4096 frames that feeds the ten
   hardware transmit slots strictly in order. `PassThruWriteMsgs` with timeout 0 therefore only
   returns `ERR_BUFFER_FULL` when that queue is full, not whenever the adapter is busy for a
@@ -187,8 +188,8 @@ above 2 Mbit/s.
 * `FD_ISO15765_TX_DATA_LENGTH = 0x805D` follows the contiguous J2534-2 numbering but could not be
   confirmed from a published source. `FD_CAN_DATA_PHASE_RATE` (0x805C), `J1962_PINS` (0x8001),
   `FD_CAN_PS` (0x8011) and `FD_ISO15765_PS` (0x8012) are verified.
-* Bit timing: 80 % sample point (75 % at ≥ 4 Mbit/s), exact rates only. 4 Mbit/s BRS is not
-  accepted on the candleLightFD bench (see the j2534-bridge notes), so it is never a default.
+* Bit timing: 80 % sample point, exact rates only. 4 Mbit/s BRS was clean on the bench, 5 Mbit/s
+  was not.
 
 ## Diagnostics
 
@@ -197,9 +198,9 @@ above 2 Mbit/s.
 | `GSUSB_J2534_LOG=<file>` | trace of every API call, frame sent/received, error frame and recovery (one process) |
 | registry `HKLM\SOFTWARE\GsUsbJ2534\TraceFile` | the same for **every** application; set with `make trace-on`, remove with `make trace-off` |
 | `GSUSB_J2534_LISTEN_ONLY=1` | start the controller listen-only (no TX, no ACK): safe passive logging |
-| `GSUSB_J2534_TX_BRS=1` / registry `HKLM\SOFTWARE\GsUsbJ2534\TxBrs`=1 | honor the application's BRS bit when sending (default: stripped, see above) |
+| `GSUSB_J2534_TX_BRS=0` / registry `HKLM\SOFTWARE\GsUsbJ2534\TxBrs`=0 | strip the BRS bit when sending (default: honored, see above) |
 | `GSUSB_J2534_DATA_TIMING=prop,ph1,ph2,sjw,brp` | explicit data-phase timing (checked against the controller limits and the bit rate); experiments only |
-| `GSUSB_J2534_DATA_SAMPLE=<permille>` | data-phase sample point (default 800); a tuning knob, it did not cure the BRS failures above |
+| `GSUSB_J2534_DATA_SAMPLE=<permille>` | data-phase sample point (default 800); a tuning knob (later is safer for BRS at high data rates) |
 
 Set them before the application starts; programs that use j2534-bridge pass them on to the DLL.
 Each frame sent is numbered (`TX seq=…`), its confirmation is logged with the delay (`TX echo seq=… after …`)

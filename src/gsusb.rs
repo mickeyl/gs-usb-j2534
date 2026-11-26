@@ -329,14 +329,10 @@ pub fn calculate_timing(
     }
     let [t1_min, t1_max, t2_min, t2_max, sjw_max, brp_min, brp_max, brp_inc]: [u32; 8] =
         std::array::from_fn(|i| word(limits, i * 4));
-    // Sample point target in permille: 80% (75% for data phases >= 4 Mbit/s).
-    let target = data_sample_override(request).unwrap_or(
-        if request == REQ_DATA_BITTIMING && bitrate >= 4_000_000 {
-            750
-        } else {
-            800
-        },
-    );
+    // Sample point target in permille (never exceeded). A later sample point gives a transmitter
+    // without delay compensation more margin: at 4 Mbit/s the bench was clean with 80 % but failed
+    // with the 70 % that a 75 % target rounds down to on 10 time quanta.
+    let target = data_sample_override(request).unwrap_or(800);
     let mut best: Option<(u32, [u32; 5])> = None;
     for brp in (brp_min.max(1)..=brp_max.min(1024)).step_by(brp_inc.max(1) as usize) {
         let divisor = u64::from(bitrate) * u64::from(brp);

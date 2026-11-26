@@ -260,7 +260,7 @@ impl Bus {
         Ok(bus)
     }
 
-    /// Choose whether BRS requested by the application is transmitted (default: stripped).
+    /// Choose whether BRS requested by the application is transmitted (default: honored).
     pub fn set_honor_tx_brs(&self, honor: bool) {
         self.strip_tx_brs.store(!honor, Ordering::Relaxed);
     }

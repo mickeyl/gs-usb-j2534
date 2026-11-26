@@ -5,7 +5,7 @@
 //! | value (registry) | environment | meaning |
 //! |---|---|---|
 //! | `TraceFile` (string) | `GSUSB_J2534_LOG` | trace file |
-//! | `TxBrs` (dword, 1 = honor) | `GSUSB_J2534_TX_BRS` (`1` honor, `0` strip) | transmit with the BRS bit the application asked for |
+//! | `TxBrs` (dword, 0 = strip) | `GSUSB_J2534_TX_BRS` (`0` strip, `1` honor) | transmit with the BRS bit the application asked for (default: honor) |
 
 use std::ffi::OsString;
 
@@ -96,14 +96,14 @@ pub fn registry_dword(name: &str) -> Option<u32> {
 
 /// Whether FD frames are transmitted with the BRS bit the application requested.
 ///
-/// Off by default: on the candleLightFD bench a transmission with BRS at 2 Mbit/s drove the
-/// controller into bus-off within milliseconds, and after a few of those the adapter hung until it
-/// was power cycled, while the same frames without BRS were reliable and the ECU accepted them.
-/// Received BRS frames are unaffected.
+/// On by default: BRS at 2 Mbit/s is clean on the candleLightFD (bench and vehicle bus, 30,000
+/// frames and a complete ECU flash, see docs/brs-investigation.md). Earlier versions stripped it
+/// because of bus-offs that no longer occur; `TxBrs=0` or `GSUSB_J2534_TX_BRS=0` restores that for
+/// a bus or adapter where BRS transmit is marginal.
 pub fn honor_tx_brs() -> bool {
     match std::env::var("GSUSB_J2534_TX_BRS").as_deref() {
         Ok("1") => true,
         Ok("0") => false,
-        _ => registry_dword("TxBrs") == Some(1),
+        _ => registry_dword("TxBrs") != Some(0),
     }
 }
