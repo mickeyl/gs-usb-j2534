@@ -41,6 +41,16 @@ rate again. Details: [docs/brs-investigation.md](docs/brs-investigation.md) and
 Not (yet) supported: the 05.00 API variant, the GM `CAN_FD_PS` dialect, battery voltage (the hardware
 has no ADC). Details under [Limits](#behaviour-and-limits).
 
+## Install from a release
+
+No toolchain needed: download `gs-usb-j2534-<version>-windows.zip` from the
+[Releases](https://github.com/mickeyl/gs-usb-j2534/releases) page, extract it, and run
+`install.cmd` (administrator rights are requested; `uninstall.cmd` removes the driver again). One
+package contains both the 64-bit and the 32-bit DLL and registers both, so it serves 64-bit and
+32-bit J2534 applications. Releases are built by GitHub Actions when a tag `vX.Y.Z` is pushed
+(the tag must match the version in `Cargo.toml`); every push and pull request is built and tested
+as well.
+
 ## Quick start
 
 Requirements: Windows 10/11 x64, a candleLight(FD) with a WinUSB driver bound (the default), Rust
@@ -58,7 +68,7 @@ The adapter then shows up in J2534 applications as **“candleLightFD J2534 (gs-
 32-bit DLL, which is why `make install` registers both flavours (`gs_usb_j2534_x64.dll` under
 `%ProgramFiles%\GsUsbJ2534`, `gs_usb_j2534_x86.dll` under `%ProgramFiles(x86)%\GsUsbJ2534`).
 `make` lists all targets, including hardware tests (`scan`, `listen`, `tp`, `uds`, `soak`, `cycle`,
-`unplug`), `uninstall`, `trace-on`/`trace-off` and `dist` (zip with both DLLs, installer, README and
+`unplug`), `uninstall`, `trace-on`/`trace-off` and `dist` (the release zip: both DLLs, installer, README and
 LICENSE).
 
 Run `make` and `cargo` from a **Windows** shell (Git Bash, PowerShell or cmd), not from WSL: the

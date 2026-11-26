@@ -11,7 +11,7 @@
     Writing to HKLM needs administrator rights; the script re-launches itself elevated (UAC prompt).
 
 .EXAMPLE
-    .\install.ps1                 # install both builds from ..\target
+    .\install.ps1                 # install both builds (release package or ..\target)
     .\install.ps1 -Arch x86       # only the 32-bit driver
     .\install.ps1 -InPlace        # register the DLLs where they are, do not copy
     .\install.ps1 -Status         # what is registered, is it current, who has it loaded
@@ -59,8 +59,15 @@ if (-not [Environment]::Is64BitProcess -and [Environment]::Is64BitOperatingSyste
     exit $LASTEXITCODE
 }
 
-if (-not $DllPath) { $DllPath = Join-Path $ScriptDir '..\target\x86_64-pc-windows-msvc\release\gs_usb_j2534.dll' }
-if (-not $DllPath32) { $DllPath32 = Join-Path $ScriptDir '..\target\i686-pc-windows-msvc\release\gs_usb_j2534.dll' }
+# Release package: the DLLs sit next to the scripts folder; source tree: the cargo output.
+$pkgX64 = Join-Path $ScriptDir '..\gs_usb_j2534_x64.dll'
+$pkgX86 = Join-Path $ScriptDir '..\gs_usb_j2534_x86.dll'
+if (-not $DllPath) {
+    $DllPath = if (Test-Path $pkgX64) { $pkgX64 } else { Join-Path $ScriptDir '..\target\x86_64-pc-windows-msvc\release\gs_usb_j2534.dll' }
+}
+if (-not $DllPath32) {
+    $DllPath32 = if (Test-Path $pkgX86) { $pkgX86 } else { Join-Path $ScriptDir '..\target\i686-pc-windows-msvc\release\gs_usb_j2534.dll' }
+}
 
 $traceKey = 'HKLM:\SOFTWARE\GsUsbJ2534'
 

@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add the 32-bit target
+        run: rustup target add i686-pc-windows-msvc
+      - name: Format and lint
+        run: |
+          cargo fmt --check
+          cargo clippy --release --all-targets -- -D warnings
+      - name: Test (x64)
+        run: cargo test --release
+      - name: Build both DLLs
+        run: |
+          cargo build --release
+          cargo build --release --target i686-pc-windows-msvc
+      - name: Check the 32-bit exports
+        run: |
+          $dll = 'target\i686-pc-windows-msvc\release\gs_usb_j2534.dll'
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC" -Recurse -Filter dumpbin.exe | Where-Object { $_.FullName -match 'Hostx64\x64' } | Select-Object -First 1
+          $exports = & $dumpbin.FullName /exports $dll | Out-String
+          foreach ($n in 'PassThruOpen', 'PassThruConnect', 'PassThruReadMsgs', 'PassThruWriteMsgs', 'PassThruIoctl') {
+            if ($exports -notmatch "\b$n\b") { throw "missing export $n" }
+          }
+          if ($exports -match 'PassThruOpen@') { throw 'x86 exports are decorated' }
+      - name: Package
+        run: scripts\package.ps1 -Version ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gs-usb-j2534-windows
+          path: dist/*.zip

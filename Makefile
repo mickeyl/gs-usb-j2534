@@ -63,14 +63,9 @@ uninstall: ## remove the registration and the installed DLL (UAC prompt)
 status: ## what is registered, is it current, which program has the DLL loaded
 	$(INSTALL) -Status
 
-dist: build ## zip both DLLs, installer, README and LICENSE into dist/
-	@mkdir -p dist/gs-usb-j2534-$(VERSION)-x64/scripts
-	cp $(DLL) dist/gs-usb-j2534-$(VERSION)-x64/gs_usb_j2534_x64.dll
-	cp $(DLL32) dist/gs-usb-j2534-$(VERSION)-x64/gs_usb_j2534_x86.dll
-	cp scripts/install.ps1 dist/gs-usb-j2534-$(VERSION)-x64/scripts/
-	cp README.md LICENSE dist/gs-usb-j2534-$(VERSION)-x64/
-	$(PS) -Command "Compress-Archive -Force -Path 'dist/gs-usb-j2534-$(VERSION)-x64/*' -DestinationPath 'dist/gs-usb-j2534-$(VERSION)-x64.zip'"
-	@echo "dist/gs-usb-j2534-$(VERSION)-x64.zip"
+dist: build ## zip both DLLs, installer, README and LICENSE into dist/ (what the release workflow publishes)
+	$(PS) -File scripts/package.ps1
+	@ls dist/*.zip
 
 # ---- hardware: the adapter must be free (close CANcorder & co. first) -------------------------
 

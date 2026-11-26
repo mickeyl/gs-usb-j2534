@@ -1,3 +1,6 @@
 # shell scripts must keep LF line endings, also on Windows checkouts
 *.sh text eol=lf
 Makefile text eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.yml text eol=lf
