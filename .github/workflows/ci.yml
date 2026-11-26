@@ -9,7 +9,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Add the 32-bit target
         run: rustup target add i686-pc-windows-msvc
       - name: Format and lint
@@ -26,7 +26,7 @@ jobs:
           cargo build --release --target i686-pc-windows-msvc
       - name: Package
         run: scripts\package.ps1 -Version ci
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: gs-usb-j2534-windows
           path: dist/*.zip
