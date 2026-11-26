@@ -79,7 +79,7 @@ Without make: `scripts\install.ps1` (`-Status`, `-Uninstall`, `-InPlace`). The r
 `HKLM\SOFTWARE\WOW6432Node\PassThruSupport.04.04` (32-bit view).
 A program that has the DLL loaded keeps it locked; the installer names it and asks you to close it.
 
-**Only one program can own the adapter** (WinUSB allows a single handle): close CANcorder,
+**Only one program can own the adapter** (WinUSB allows a single handle): close [CANcorder](https://www.cansole.dev/cancorder/),
 j2534-bridge native mode and similar tools before another one opens it, otherwise `PassThruOpen`
 returns `ERR_DEVICE_IN_USE`.
 
