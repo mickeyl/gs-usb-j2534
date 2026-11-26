@@ -19,8 +19,10 @@ jobs:
           if ("v$version" -ne $env:GITHUB_REF_NAME) { throw "tag $env:GITHUB_REF_NAME does not match Cargo.toml version $version" }
       - name: Add the 32-bit target
         run: rustup target add i686-pc-windows-msvc
-      - name: Test
+      - name: Test (x64)
         run: cargo test --release
+      - name: Test (x86)
+        run: cargo test --release --target i686-pc-windows-msvc
       - name: Build both DLLs
         run: |
           cargo build --release

@@ -11,7 +11,7 @@ driver and load its DLL. Hardware that speaks the open **gs_usb** protocol (cand
 candleLightFD, many STM32/RP2040 boards) has no such driver, so closed-source tools cannot use it,
 even though the hardware can do CAN FD at 2 Mbit/s for a fraction of the price.
 
-The existing [j2534-bridge](../CANsole/packages/j2534-bridge) already speaks gs_usb natively, but it
+The existing [j2534-bridge](https://github.com/mickeyl/j2534-bridge) already speaks gs_usb natively, but it
 is a *client library*, not a PassThru DLL: only the applications that embed it benefit. This project
 closes the gap from the other side and turns the adapter into a regular PassThru device:
 
